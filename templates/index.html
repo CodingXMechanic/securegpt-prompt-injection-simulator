@@ -1,0 +1,347 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>SecureGPT – Prompt Injection Simulator (Smart)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            --bg: #071025;
+            --panel: #0b1220;
+            --muted: #94a3b8;
+            --accent: #7c3aed;
+            --user: #2563eb;
+            font-family: Inter, Arial, sans-serif;
+            color-scheme: dark;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: #e6eef8;
+        }
+
+        .app {
+            max-width: 980px;
+            margin: 20px auto;
+            padding: 18px;
+        }
+
+        header {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+            header h1 {
+                font-size: 20px;
+                margin: 0;
+            }
+
+        .panel {
+            background: var(--panel);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+        }
+
+        .meta {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .chip {
+            background: rgba(255,255,255,0.03);
+            padding: 8px 10px;
+            border-radius: 999px;
+            color: var(--muted);
+            cursor: pointer;
+        }
+
+        .chat {
+            height: 55vh;
+            overflow: auto;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .msg {
+            margin: 8px 0;
+            max-width: 78%;
+            padding: 12px;
+            border-radius: 10px;
+            line-height: 1.4;
+        }
+
+        .user {
+            margin-left: auto;
+            background: linear-gradient(180deg,var(--user),#1f6fe8);
+            color: white;
+        }
+
+        .ai {
+            background: linear-gradient(180deg,#081028,#0b1220);
+            color: #cfe3ff;
+            border: 1px solid rgba(255,255,255,0.02)
+        }
+
+        footer {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.04);
+            background: transparent;
+            color: inherit;
+        }
+
+        button {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: none;
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .small {
+            font-size: 12px
+        }
+
+        .mode-toggle {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .sessions {
+            margin-left: 12px;
+            display: flex;
+            gap: 8px;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .session-item {
+            background: rgba(255,255,255,0.03);
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--muted);
+            font-size: 13px;
+            max-width: 260px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header>
+            <div style="width:44px;height:44px;border-radius:8px;background:linear-gradient(45deg,var(--accent),#06b6d4)"></div>
+            <div style="flex:1">
+                <h1>SecureGPT — Prompt Injection Simulator (Smart)</h1>
+                <div class="meta">Interactive demo that simulates injection attacks and shows defenses. No external LLMs used.</div>
+            </div>
+            <div style="text-align:right;">
+                <div class="muted small">Mode:</div>
+                <select id="mode">
+                    <option value="vulnerable">VULNERABLE (demo)</option>
+                    <option value="hardened">HARDENED (safe)</option>
+                </select>
+            </div>
+        </header>
+
+        <div class="panel">
+            <div class="controls">
+                <div style="flex:1">
+                    <strong>Examples:</strong>
+                    <div id="samples" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
+                </div>
+
+                <div class="sessions" style="min-width:260px;">
+                    <div class="session-header">
+                        <div class="muted small">Archived Sessions</div>
+                        <button id="refreshSessions" class="small">Refresh</button>
+                    </div>
+                    <div id="sessionsList" style="display:flex; flex-direction:column; gap:6px;"></div>
+                </div>
+            </div>
+
+            <div class="chat" id="chat" aria-live="polite"></div>
+
+            <footer>
+                <input id="prompt" type="text" placeholder="Write or paste an instruction (try a sample)..." />
+                <button id="send">Send</button>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        async function fetchSamples() {
+            try {
+                const res = await fetch("/attacks");
+                const json = await res.json();
+                return json;
+            } catch (e) { return { attacks: {}, descriptions: {} }; }
+        }
+
+        function appendMessage(role, text) {
+            const chat = document.getElementById("chat");
+            const d = document.createElement("div");
+            d.className = "msg " + (role === "user" ? "user" : "ai");
+            text.split("\n").forEach((line) => {
+                const p = document.createElement("div");
+                p.textContent = line;
+                d.appendChild(p);
+            });
+            chat.appendChild(d);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        async function sendPrompt(prompt) {
+            appendMessage("user", prompt);
+            appendMessage("ai", "…thinking…");
+            const aiNodes = document.querySelectorAll(".msg.ai");
+            const placeholder = aiNodes[aiNodes.length - 1];
+
+            try {
+                const res = await fetch("/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt })
+                });
+                const json = await res.json();
+                placeholder.innerHTML = "";
+                json.response.split("\n").forEach(line => {
+                    const p = document.createElement("div");
+                    p.textContent = line;
+                    placeholder.appendChild(p);
+                });
+            } catch (e) {
+                placeholder.textContent = "[ERROR: Could not contact simulator]";
+            }
+        }
+
+        document.getElementById("send").addEventListener("click", () => {
+            const p = document.getElementById("prompt");
+            const val = p.value.trim();
+            if (!val) return;
+            sendPrompt(val);
+            p.value = "";
+        });
+
+        document.getElementById("prompt").addEventListener("keypress", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); document.getElementById("send").click(); }
+        });
+
+        document.getElementById("mode").addEventListener("change", async (e) => {
+            const newMode = e.target.value;
+            try {
+                const res = await fetch("/set_mode", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: newMode })
+                });
+                const json = await res.json();
+                document.getElementById("chat").innerHTML = "";
+                if (json.archived && json.archived.id) {
+                    appendMessage("ai", `[System] Mode changed to ${json.mode.toUpperCase()}. Previous conversation archived (id: ${json.archived.id}).`);
+                } else {
+                    appendMessage("ai", `[System] Mode changed to ${json.mode.toUpperCase()}.`);
+                }
+                loadSessions();
+            } catch (err) {
+                appendMessage("ai", "[ERROR] Could not change mode.");
+            }
+        });
+
+        async function loadSessions() {
+            try {
+                const res = await fetch("/conversations");
+                const json = await res.json();
+                const list = document.getElementById("sessionsList");
+                list.innerHTML = "";
+                (json.conversations || []).forEach(c => {
+                    const item = document.createElement("div");
+                    item.className = "session-item";
+                    item.textContent = `${c.created_at.slice(0, 19)} • ${c.mode.toUpperCase()} • ${c.preview}`;
+                    item.title = c.preview;
+                    item.addEventListener("click", () => { loadConversation(c.id); });
+                    list.appendChild(item);
+                });
+                if ((json.conversations || []).length === 0) {
+                    list.innerHTML = "<div class='muted small' style='color:var(--muted)'>No archived sessions yet.</div>";
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        async function loadConversation(id) {
+            try {
+                const res = await fetch(`/conversation?id=${encodeURIComponent(id)}`);
+                const json = await res.json();
+                const conv = json.conversation;
+                if (!conv) return;
+                const chat = document.getElementById("chat");
+                chat.innerHTML = "";
+                appendMessage("ai", `[Archived session ${conv.id} • mode: ${conv.mode} • ts: ${conv.created_at}]`);
+                conv.messages.forEach(m => {
+                    appendMessage(m.role, m.text);
+                });
+            } catch (e) {
+                appendMessage("ai", "[ERROR] Could not load conversation.");
+            }
+        }
+
+        (async () => {
+            const { attacks, descriptions } = await fetchSamples();
+            const samplesDiv = document.getElementById("samples");
+            Object.entries(attacks).forEach(([name, payload]) => {
+                const chip = document.createElement("div");
+                chip.className = "chip";
+                chip.title = descriptions[name] || "";
+                chip.textContent = name.replace(/_/g, " ");
+                chip.addEventListener("click", () => {
+                    document.getElementById("prompt").value = payload.trim();
+                });
+                samplesDiv.appendChild(chip);
+            });
+
+            loadSessions();
+        })();
+    </script>
+</body>
+</html>
